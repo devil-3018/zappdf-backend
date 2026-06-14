@@ -24,12 +24,11 @@ load_dotenv()
 app = FastAPI(
     title="ZapPDF by reNexaris — API",
     version="3.0.0",
-    docs_url="/docs",       # Remove in production: docs_url=None
+    docs_url=None,       # Remove in production: docs_url=None
     redoc_url=None,
 )
 
-# ── CORS: Only allow your frontend domain ──────────────
-# In production, replace * with your actual domain
+# ── CORS ──────────────────────────────────────────────────
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5500",
@@ -42,9 +41,9 @@ ALLOWED_ORIGINS = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST"],    # Only what we need
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
