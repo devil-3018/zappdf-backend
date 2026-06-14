@@ -345,35 +345,157 @@ async def jpg_to_pdf(files: List[UploadFile] = File(...),
 # ── 18. PDF TO WORD ───────────────────────────────────
 @app.post("/pdf-to-word")
 async def pdf_to_word(file: UploadFile = File(...)):
-    p = save(file, "p2w.pdf"); out = tmp("converted.docx")
+    # Validate PDF
+    original_name = file.filename or "document.pdf"
+    if not original_name.lower().endswith('.pdf'):
+        raise HTTPException(400, "Please upload a PDF file (.pdf)")
+    
+    p = save(file, "pdf_to_convert.pdf")
+    out = tmp("converted.docx")
+    
+    # Verify it's a real PDF
+    with open(str(p), 'rb') as f:
+        header = f.read(4)
+    if header != b'%PDF':
+        raise HTTPException(400, "The uploaded file is not a valid PDF. Please upload a .pdf file.")
+    
     try:
-        cv = PDFConverter(str(p)); cv.convert(str(out)); cv.close()
-    except Exception as e: raise HTTPException(400, f"Conversion failed: {e}")
-    return FileResponse(str(out),
+        # Use pdf2docx for conversion (best quality)
+        cv = PDFConverter(str(p))
+        cv.convert(str(out), start=0, end=None)
+        cv.close()
+    except Exception as e:
+        # Fallback: extract text and create basic Word doc
+        try:
+            doc_fb = fitz.open(str(p))
+            word_doc = DocxDoc()
+            
+            # Add title
+            word_doc.add_heading(Path(original_name).stem, 0)
+            
+            for i, page in enumerate(doc_fb):
+                if i > 0:
+                    word_doc.add_page_break()
+                text = page.get_text()
+                if text.strip():
+                    # Split into paragraphs
+                    for para_text in (text + '').split('\n\n'):
+
+
+                        para_text = para_text.strip()
+                        if para_text:
+                            word_doc.add_paragraph(para_text)
+            
+            word_doc.save(str(out))
+        except Exception as e2:
+            raise HTTPException(400, f"Conversion failed: {str(e)}. Fallback also failed: {str(e2)}")
+    
+    # Verify output was created
+    if not out.exists() or out.stat().st_size < 100:
+        raise HTTPException(500, "Conversion produced an empty file. The PDF may be scanned or image-based.")
+    
+    output_name = Path(original_name).stem + ".docx"
+    return FileResponse(
+        str(out),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename="converted.docx",
-        headers={"Access-Control-Allow-Origin": "*"})
+        filename=output_name,
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
 
 # ── 19. WORD TO PDF ───────────────────────────────────
 @app.post("/word-to-pdf")
 async def word_to_pdf(file: UploadFile = File(...)):
-    suf = Path(file.filename).suffix.lower()
-    p = save(file, f"w2p{suf}"); out = tmp("word.pdf")
+    # Get original filename and extension
+    original_name = file.filename or "document.docx"
+    suf = Path(original_name).suffix.lower()
+    
+    # Validate file type
+    if suf not in ['.doc', '.docx']:
+        raise HTTPException(400, f"Please upload a Word file (.doc or .docx). Got: {suf or 'unknown'}")
+    
+    # Save with correct extension
+    safe_name = f"word_input{suf}"
+    p = save(file, safe_name)
+    out = tmp("word_output.pdf")
+    
     try:
-        doc = DocxDoc(str(p)); styles = getSampleStyleSheet(); elements = []
+        # Read the Word document
+        doc = DocxDoc(str(p))
+        styles = getSampleStyleSheet()
+        
+        # Custom styles for better output
+        h1_style = ParagraphStyle('H1', parent=styles['Heading1'],
+            fontSize=18, spaceAfter=12, spaceBefore=16, 
+            textColor=colors.HexColor('#0f172a'))
+        h2_style = ParagraphStyle('H2', parent=styles['Heading2'],
+            fontSize=14, spaceAfter=8, spaceBefore=12,
+            textColor=colors.HexColor('#1e293b'))
+        body_style = ParagraphStyle('Body', parent=styles['Normal'],
+            fontSize=11, leading=16, spaceAfter=6,
+            textColor=colors.HexColor('#0f172a'))
+        
+        elements = []
+        
         for para in doc.paragraphs:
-            if not para.text.strip(): continue
-            sn = para.style.name
-            if 'Heading 1' in sn: elements.append(Paragraph(para.text, styles['Heading1']))
-            elif 'Heading 2' in sn: elements.append(Paragraph(para.text, styles['Heading2']))
-            else: elements.append(Paragraph(para.text, styles['Normal']))
-            elements.append(Spacer(1, 4))
-        if not elements: elements.append(Paragraph("(Empty document)", styles['Normal']))
-        SimpleDocTemplate(str(out), pagesize=A4,
-                         rightMargin=2*cm, leftMargin=2*cm,
-                         topMargin=2*cm, bottomMargin=2*cm).build(elements)
-    except Exception as e: raise HTTPException(400, f"Word to PDF failed: {e}")
-    return pres(out, "word_converted.pdf")
+            text = para.text.strip()
+            if not text:
+                elements.append(Spacer(1, 6))
+                continue
+            
+            sn = para.style.name.lower()
+            
+            # Handle different heading levels
+            if 'heading 1' in sn or 'title' in sn:
+                elements.append(Paragraph(text, h1_style))
+            elif 'heading 2' in sn:
+                elements.append(Paragraph(text, h2_style))
+            elif 'heading' in sn:
+                elements.append(Paragraph(text, styles['Heading3']))
+            else:
+                # Handle bold/italic runs
+                rich_text = text
+                elements.append(Paragraph(rich_text, body_style))
+        
+        # Handle tables
+        for table in doc.tables:
+            table_data = []
+            for row in table.rows:
+                row_data = [cell.text.strip() for cell in row.cells]
+                table_data.append(row_data)
+            if table_data:
+                t = Table(table_data, repeatRows=1)
+                t.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
+                    ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
+                    ('FONTSIZE',   (0,0), (-1,0), 10),
+                    ('FONTSIZE',   (0,1), (-1,-1), 9),
+                    ('GRID',       (0,0), (-1,-1), 0.5, colors.grey),
+                    ('BACKGROUND', (0,1), (-1,-1), colors.white),
+                    ('PADDING',    (0,0), (-1,-1), 6),
+                    ('VALIGN',     (0,0), (-1,-1), 'TOP'),
+                ]))
+                elements.append(Spacer(1, 10))
+                elements.append(t)
+                elements.append(Spacer(1, 10))
+        
+        if not elements:
+            elements.append(Paragraph("(This document appears to be empty)", body_style))
+        
+        # Build PDF
+        doc_pdf = SimpleDocTemplate(
+            str(out), pagesize=A4,
+            rightMargin=2*cm, leftMargin=2*cm,
+            topMargin=2.5*cm, bottomMargin=2*cm,
+            title=Path(original_name).stem,
+        )
+        doc_pdf.build(elements)
+        
+    except Exception as e:
+        raise HTTPException(400, f"Word to PDF failed: {str(e)}")
+    
+    # Return PDF with original filename
+    output_name = Path(original_name).stem + ".pdf"
+    return pres(out, output_name)
 
 # ── 20. EXCEL TO PDF ──────────────────────────────────
 @app.post("/excel-to-pdf")
