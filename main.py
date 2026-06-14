@@ -79,8 +79,6 @@ app.add_middleware(ForceCORSMiddleware)
 
 # ── EXPLICIT CORS PREFLIGHT HANDLER ──────────────────
 # This handles OPTIONS requests that browsers send before POST
-from fastapi import Request
-from fastapi.responses import Response
 
 @app.options("/{rest_of_path:path}")
 async def preflight_handler(rest_of_path: str, request: Request):
