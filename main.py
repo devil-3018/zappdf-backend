@@ -2,9 +2,9 @@
 ZapPDF Backend — FastAPI — Complete & Final
 Run: python main.py
 """
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 import fitz
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
@@ -24,7 +24,7 @@ load_dotenv()
 app = FastAPI(
     title="ZapPDF by reNexaris — API",
     version="3.0.0",
-    docs_url=None,       # Remove in production: docs_url=None
+    docs_url="/docs",       # Remove in production: docs_url=None
     redoc_url=None,
 )
 
