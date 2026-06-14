@@ -31,11 +31,13 @@ app = FastAPI(
 # ── CORS: Only allow your frontend domain ──────────────
 # In production, replace * with your actual domain
 ALLOWED_ORIGINS = [
-    "http://localhost:3000",          # Local frontend
+    "http://localhost:3000",
+    "http://localhost:5500",
     "http://127.0.0.1:3000",
-    "https://www.zappdf.com",         # Your live domain
-    "https://zappdf.netlify.app",     # Netlify domain
-    # Add any other domains here
+    "http://127.0.0.1:5500",
+    "https://zappdfv2.netlify.app",
+    "https://www.zappdf.com",
+    "https://zappdf.netlify.app",
 ]
 
 app.add_middleware(
