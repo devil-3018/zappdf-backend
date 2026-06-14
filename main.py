@@ -47,26 +47,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── FILE SIZE LIMIT: Block files over 50MB ─────────────
+# File size limit handled in endpoint validation
+
+# Security: rate limiting via slowapi only (CORS-safe)
+from security import cleanup_old_files
+
+
+
+# ── FORCE CORS HEADERS ON EVERY RESPONSE ─────────────
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse as SJSONResponse
 
-class FileSizeLimitMiddleware(BaseHTTPMiddleware):
-    MAX_BYTES = 52_428_800  # 50MB
-    async def dispatch(self, req, call_next):
-        ct = req.headers.get("content-length")
-        if ct and int(ct) > self.MAX_BYTES:
-            return SJSONResponse(
-                status_code=413,
-                content={"error": f"File too large. Max 50MB allowed."}
+class ForceCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method == "OPTIONS":
+            return Response(
+                content="OK",
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "*",
+                    "Access-Control-Max-Age": "86400",
+                }
             )
-        return await call_next(req)
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        return response
 
-app.add_middleware(FileSizeLimitMiddleware)
+app.add_middleware(ForceCORSMiddleware)
 
-# ── APPLY ALL SECURITY LAYERS ─────────────────────────
-from security import apply_security, cleanup_old_files
-apply_security(app)
+# ── EXPLICIT CORS PREFLIGHT HANDLER ──────────────────
+# This handles OPTIONS requests that browsers send before POST
+from fastapi import Request
+from fastapi.responses import Response
+
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(rest_of_path: str, request: Request):
+    return Response(
+        content="OK",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "86400",
+        }
+    )
 
 # ── AUTO CLEANUP TEMP FILES ───────────────────────────
 import asyncio
